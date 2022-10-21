@@ -1,5 +1,10 @@
 ## Data and R Codes for Integrated multispecies occupancy model on bottlenose dolphins and trawlers in the Gulf of Lion (NW Mediterranean Sea)
 
+
+
+[![DOI](https://zenodo.org/badge/490309340.svg)](https://zenodo.org/badge/latestdoi/490309340)
+
+
 Multiple files are located in the repo. 
 
   * In [Rcodes](/Rcodes) folder: .rdata, .Rmd, and .pdf useful to run Integrated Multispecies Occupancy Model on trawlers and bottlenose dolphins.
