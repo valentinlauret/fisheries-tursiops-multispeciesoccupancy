@@ -1,16 +1,26 @@
 ---
-title: Using integrated multispecies occupancy models to map co-occurrence between
-  bottlenose dolphins and fisheries in the Gulf of Lion, French Mediterranean Sea.
-author: "Valentin Lauret, Hélène Labach, Léa David, Matthieu Authier, Olivier Gimenez"
-subtitle: R codes
+title: |
+ \textbf{Supplementary material \\ 
+ Using integrated multispecies occupancy models to map co-occurrence between bottlenose dolphins and fisheries in the Gulf of Lion, French Mediterranean Sea.}
+author: |
+ Valentin Lauret$^1$, Hélène Labach$^{2}$, Léa David$^{3}$, Matthieu Authier$^{4,5}$, Olivier Gimenez$^{1}$
+subtitle: 'R codes and data to implement integrated multispecies occupancy models'
 output:
-  pdf_document: default
-  word_document: default
-  bookdown::pdf_document2:
+  bookdown::pdf_document2: 
     extra_dependencies: float
     highlight: tango
-geometry: margin=0.5cm
-toc: no
+  word_document: default
+keywords: bottlenose dolphins, human-animal interaction, integrated models, multispecies
+  occupancy
+geometry: margin=2cm
+colorlinks: yes
+link-citations: yes
+toc: false
+mainfont: TimesNow-SemiLight
+sansfont: Montserrat-Bold
+monofont: TimesNow-ExtraLight
+header-includes:
+  - \usepackage{setspace}
 ---
 
 ```{r setup, echo=FALSE}
@@ -35,9 +45,44 @@ library(nimble)
 load("IMSOdata.rdata")
 ```
 
+In the input data, we have:  
+
+
+* `y` is the detection / no-detection dataset that stores values ranging from 1 to 16 corresponding to detection status in each of the 279 grid-cells (in rows) and each of the 4 sampling occasion (in columns).  
+
+```{r echo=FALSE}
+head(y)
+```
+
+* `seffG` and `seffS` that store the sampling effort covariates of GDEGeM boat surveys and SAMM aerial surveys respectively. Values correspond to the **scaled** length (in km) of the survey in each of the 279 grid-cells (in rows) and each of the 4 sampling occasion (in columns). `effindG` and `effindS` store binary 0/1 values indicating if each of the 279 grid-cells (in rows) and each of the 4 sampling occasion (in columns) have been sampled by GDEGeM boat surveys and SAMM aerial surveys respectively.
+
+```{r echo = FALSE}
+head(seffS)
+```
+
+* `stbathy` stores the **scaled** depth covariate in each of the 279 grid-cells.  
+
+```{r echo = FALSE}
+head(stbathy)
+```
+
+
 # IMSO
 
-Get the ingredients for GAMs using package `jagam` developed by Simon Wood and basically hacks what is built by the package `mgcv`.
+## Get the variables of the integrated multispecies occupancy model (IMSO)
+
+  * `z[j]` is the variable describing the latent occupancy state at grid-cell `j`.
+  * `y[j,k]` is the variable describing the observation detection / no-detection data at grid-cell `j` and sampling occasion `k`.
+  * `psi[j,k]` is the occupancy probability at grid-cell `j` for sampling occasion `k`.
+  * `obs[j,k, 1:16, z[j]]` is th vector of the detection probabilities of each possible observation `y[j,k]` at grid-cell `j` for sampling occasion `k`, conditional on `z[j]`.
+  * `pAs[j,k]`, `pAg[j,k]`, `pBs[j,k]`, `pBg[j,k]` are the detection probabilities of bottlenose dolphins by aerial surveys, of bottlenose dolphins by boat surveys, of fishing trawlers by aerial surveys, and of fishing trawlers by boat surveys respectively at grid-cell `j` and sampling occasion `k`.
+  * `beta[1:8]` are the intercepts and slope assoicated with the logistic regressions that estimate detection probabilities `pAs[j,k]`, `pAg[j,k]`, `pBs[j,k]`, and `pBg[j,k]`.
+  * `lambda`, `b1`, `b2`, `b3`, `X` , `S1`, `zero` are GAM parameters used to parametrize GAMs in BUGS language, (for additional details one can refer to [this example](https://masonfidino.com/generalized_additive_occupancy_model/) by Mason Fidino using {mgcv} R package to implement a GAM in an occupancy model).
+
+  
+## R codes 
+
+Get the ingredients for GAMs using package `jagam` developed by Simon Wood and basically hacks what is built by the package `mgcv`. We implemented the GAM with default `K=10` knots and `bs = "gp"` Gaussian process smooths for penalized splines. 
 
 ```{r message=FALSE, warning=FALSE}
 yy_dolphin <- apply(y, 1, max, na.rm = TRUE)
@@ -45,7 +90,7 @@ yy_dolphin[yy_dolphin ==1] <- 0
 yy_dolphin[yy_dolphin >1] <- 1
 
 library(mgcv)
-res <- jagam(yy_dolphin ~ s(stbathy) + s(coordx, coordy, bs = "gp"), 
+res <- jagam(yy_dolphin ~ stbathy + s(coordx, coordy, bs = "gp"), 
              family = "binomial",
              file = "psi.txt")
 ```
@@ -156,27 +201,27 @@ IMSO <- nimbleCode({
   }  
   ## priors for...
   # occupancy probabilities
-
+  
   for(j in 1:nsite) {
     log(prop[j, 1]) <- theta1[j]
     log(prop[j, 2]) <- theta2[j]
     log(prop[j, 3]) <- theta3[j]
   }
-
+  
   theta1[1:nsite] <- X[1:nsite,1:34] %*% b1[1:34] ## linear predictor
   theta2[1:nsite] <- X[1:nsite,1:34] %*% b2[1:34] ## linear predictor
   theta3[1:nsite] <- X[1:nsite,1:34] %*% b3[1:34] ## linear predictor
-
-
+  
+  
   b1[1] ~ dnorm(0,0.01)
   b2[1] ~ dnorm(0,0.01)
   b3[1] ~ dnorm(0,0.01)
-
+  
   ## prior for s(bathy)
   b1[2] ~ dnorm(0,0.01)
   b2[2] ~ dnorm(0,0.01)
   b3[2] ~ dnorm(0,0.01)
-
+  
   ## prior for s(coordx,coordy)
   K21[1:32,1:32] <- S1[1:32,1:32] * lambda[1, 1]  + S1[1:32,33:64] * lambda[2, 1]
   K22[1:32,1:32] <- S1[1:32,1:32] * lambda[1, 2]  + S1[1:32,33:64] * lambda[2, 2]
@@ -184,7 +229,7 @@ IMSO <- nimbleCode({
   b1[3:34] ~ dmnorm(zero[1:32], K21[1:32,1:32])
   b2[3:34] ~ dmnorm(zero[1:32], K22[1:32,1:32])
   b3[3:34] ~ dmnorm(zero[1:32], K23[1:32,1:32])
-
+  
   ## smoothing parameter priors
   for (i in 1:2) {
     for (kk in 1:3){

@@ -1,0 +1,225 @@
+---
+title: Using integrated multispecies occupancy models to map co-occurrence between
+  bottlenose dolphins and fisheries in the Gulf of Lion, French Mediterranean Sea.
+author: "Valentin Lauret, Hélène Labach, Léa David, Matthieu Authier, Olivier Gimenez"
+subtitle: R codes - Comparing multi- and single-species integrated occupancy models
+output:
+  pdf_document: default
+  word_document: default
+  bookdown::pdf_document2:
+    extra_dependencies: float
+    highlight: tango
+geometry: margin=0.5cm
+toc: no
+---
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(eval = FALSE, 
+                      echo = TRUE,
+                      results = 'hide', 
+                      dpi = 300, 
+                      cache = TRUE)
+```
+
+# Load required packages
+
+```{r}
+library(tidyverse)
+library(sf)
+library(nimble)
+```
+
+# Load data
+
+```{r ,  message=FALSE, warning=FALSE}
+load(here("Rcodes/IMSOdata.rdata"))
+```
+
+# Integrated single-species Occupancy
+
+Write an integrated occupancy model for a single-species
+
+## BUGS model
+
+```{r eval = FALSE, include=TRUE }
+intOcc <- nimbleCode({
+  
+  ## state process
+  for(j in 1:nsite){
+    z[j] ~ dbern(psi[j])
+  }
+  # occupancy probabilities
+  
+  logit(psi[1:nsite]) <- alpha[1] + alpha[2] * stbathy[1:nsite]
+  
+  # detection matrix with obs for observations and state = true state
+  # 1 for none species detected
+  # 2 for species A
+  # 3 for species B
+  # 4 for both species detected
+  
+  ## observation process
+  for(j in 1:nsite) {
+    for(k in 1:nyear) {
+      y[j, k] ~ dcat(obs[j, k, 1:4])
+    }
+  }
+  
+  # given state = unoccupied,
+  for(j in 1:nsite) {
+    for(k in 1:nyear) {
+      # 
+      obs[j, k, 1] <- 1 - z[j] + z[j] * (1 - ind.samm[j,k] * p_samm[j,k]) * (1 - ind.gd[j,k] * p_gdegem[j,k])  
+      # prob obs = 1 no detection
+      obs[j, k, 2] <- z[j] *(1 - ind.samm[j,k] * p_samm[j,k]) *  ind.gd[j,k] * p_gdegem[j,k]
+      # prob obs = 2 detection by boat surveys only
+      obs[j, k, 3] <- z[j] * (1 - ind.gd[j,k] * p_gdegem[j,k]) * ind.samm[j,k] * p_samm[j,k]
+      # prob obs = 3 detection by boat surveys only
+      obs[j, k, 4] <- z[j] * ind.gd[j,k] * ind.samm[j,k] * p_samm[j,k] * p_gdegem[j,k]
+      # prob obs = 4 detection by both surveys
+    }
+  }
+  
+  # detection probabilities (pA function of pres/abs of B, as in Waddle et al 2010 page 1470)
+  # VL: There are 2 detections probabilities now pA, pB
+  
+  for(j in 1:nsite) {
+    for(k in 1:nyear) {
+      # p_samm
+      logit(p_samm[j,k])<- alpha.p_samm + beta[1] * eff.samm[j,k] 
+      
+      # p_samm
+      logit(p_gdegem[j,k]) <- alpha.p_gdegem + beta[2] * eff.gd[j,k] 
+    }
+  }
+  
+  # priors for p
+  alpha.p_samm ~ dnorm(0,1)
+  alpha.p_gdegem ~ dnorm(0,1)
+  for (i in 1:2){
+    beta[i] ~ dnorm(0,1)
+    alpha[i] ~ dnorm(0,1)
+  }
+})
+```
+
+
+Then, you choose to prepare either dolphin or trawlers dataset for the run, ie. run only one of the next paragraph.
+
+### Dolphin
+
+Get the ingredients for GAMs using package `jagam` developed by Simon Wood and basically hacks what is built by the package `mgcv`.
+
+```{r message=FALSE, warning=FALSE}
+
+unique(c(y))
+dim(y)
+
+yd <- matrix(0, nrow = dim(y)[1], ncol = dim(y)[2])
+yd[y %in% c(2,4,10,12)] <- 2  # boat
+yd[y %in% c(5,7,13,15)] <- 3 # aerial 
+yd[y %in% c(6,8,14,16)] <- 4 # both
+
+table(yd)
+```
+
+```{r eval = FALSE, include=FALSE}
+# nimble
+yd[yd ==0] <-  1
+table(c(yd))
+data <- list(y = yd, 
+             eff.samm = seffS,
+             ind.samm = effindS,
+             eff.gd = seffG,
+             ind.gd = effindG,
+             stbathy= stbathy)
+
+str(data)
+constants <- list(nsite = dim(yd)[1], 
+                  nyear = dim(yd)[2])
+
+# Initial values for z {1:4} have to be consistent with the detections
+
+#zinit <- matrix(NA, nrow = dim(yd)[1], ncol = dim(yd)[2])
+zinit <- apply(yd,1, max)
+zinit[zinit== 1] <- 0
+zinit[zinit> 1] <- 1
+
+# table
+table(zinit)
+table(c(yd))
+
+inits <- list(z = zinit, 
+              beta = rnorm(2, 0, 1), 
+              alpha = rnorm(2,0,1),
+              alpha.p_samm = rnorm(1,0,1),
+              alpha.p_gdegem  = rnorm(1,0,1))
+```
+
+
+### Trawlers
+
+```{r message=FALSE, warning=FALSE}
+
+yt <- matrix(0, nrow = dim(y)[1], ncol = dim(y)[2])
+yt[y %in% c(3,4,7,8)] <- 2  # boat
+yt[y %in% c(9,10,14,13)] <- 3 # aerial 
+yt[y %in% c(12,11,15,16)] <- 4 # both
+
+table(yt)
+```
+
+```{r eval = FALSE, include=FALSE}
+# nimble
+yt[yt ==0] <-  1
+table(c(yt))
+
+dataT <- list(y = yt, 
+              eff.samm = seffS,
+              ind.samm = effindS,
+              eff.gd = seffG,
+              ind.gd = effindG,
+              stbathy= stbathy)
+
+str(dataT)
+constantsT <- list(nsite = dim(yt)[1], 
+                   nyear = dim(yt)[2])
+
+# Initial values for z {1:4} have to be consistent with the detections
+
+#zinit <- matrix(NA, nrow = dim(yd)[1], ncol = dim(yd)[2])
+zinitT <- apply(yt,1, max)
+zinitT[zinitT == 1] <- 0
+zinitT[zinitT > 1] <- 1
+
+# table
+table(zinitT)
+table(c(yt))
+
+initsT <- list(z = zinitT, 
+               beta = rnorm(2, 0, 1), 
+               alpha = rnorm(2,0,1),
+               alpha.p_samm = rnorm(1,0,1),
+               alpha.p_gdegem  = rnorm(1,0,1))
+```
+
+
+## Build, compile and run model with NIMBLE
+
+```{r eval = FALSE, include=TRUE}
+Rmodel <- nimbleModel(intOcc, constantsT, dataT, initsT)
+Rmodel$initializeInfo()
+Rmodel$calculate() # T -662 D # - 401
+
+conf <- configureMCMC(Rmodel)
+conf$printMonitors() 
+
+# Build and compile MCMC
+Rmcmc <- buildMCMC(conf)
+Cmodel <- compileNimble(Rmodel)
+Cmcmc <- compileNimble(Rmcmc, project = Cmodel)
+
+# Run MCMC
+t <- system.time(samplesTSG <- runMCMC(Cmcmc, niter = 150000, nburnin = 50000, nchains = 3,samplesAsCodaMCMC = TRUE))
+
+```
